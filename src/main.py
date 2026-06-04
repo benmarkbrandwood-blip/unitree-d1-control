@@ -104,7 +104,7 @@ def main() -> None:
 
         log.info("Returning to home...")
         arm.home()
-        time.sleep(1.0)
+        time.sleep(4.0)  # arm needs ~3-4 s to complete homing motion
 
         tail = usb.get_last_lines(10)
         if tail:

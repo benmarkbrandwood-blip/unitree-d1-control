@@ -281,12 +281,11 @@ class D1Arm:
         self.move_joint(6, pos)
 
     def disconnect(self) -> None:
-        """Home the arm, stop feedback thread, and release DDS resources."""
+        """Stop feedback thread and release DDS resources.
+
+        Call arm.home() and wait for it to complete before calling this.
+        """
         logging.info("D1Arm: disconnecting.")
-        try:
-            self.home()
-        except Exception:
-            pass
         self._stop_event.set()
         if self._fb_thread and self._fb_thread.is_alive():
             self._fb_thread.join(timeout=2.0)
