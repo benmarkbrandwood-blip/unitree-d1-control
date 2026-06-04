@@ -116,11 +116,29 @@ def save_current_state(iface: str) -> NetState:
 
 
 def apply_arm_ip(state: NetState) -> None:
-    """Flush current IP and apply 192.168.123.162/24 (no reboot, temporary).
+    """Apply 192.168.123.162/24 to the interface, skipping if already set.
+
+    Skipping the flush when the IP is already correct avoids clearing the ARP
+    cache, which would cause verify_arm_reachable() to fail immediately after.
 
     Args:
         state: NetState returned by save_current_state.
     """
+    result = subprocess.run(
+        ["ip", "-j", "addr", "show", "dev", state.iface],
+        capture_output=True, text=True, check=True,
+    )
+    data = json.loads(result.stdout)
+    already_set = any(
+        addr.get("family") == "inet"
+        and addr.get("local") == PC_IP
+        and str(addr.get("prefixlen")) == NETMASK
+        for iface in data
+        for addr in iface.get("addr_info", [])
+    )
+    if already_set:
+        return
+
     subprocess.run(
         ["sudo", "ip", "addr", "flush", "dev", state.iface], check=True
     )
