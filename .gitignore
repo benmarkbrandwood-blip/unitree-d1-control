@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+logs/*.log
+config/net_backup.json
+*.zip
+*.docx
+.~lock.*
+src/diag_*.py
+perplexity.md
+reply.md

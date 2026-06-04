@@ -1,0 +1,21 @@
+[network]
+iface         = "enp63s0"           # wired Ethernet to D1 arm
+arm_ip        = "192.168.123.100"
+pc_ip         = "192.168.123.162"
+netmask       = "24"
+ping_timeout  = 2                   # seconds
+
+[arm]
+dds_iface_idx = 0                   # CycloneDDS interface index (0 = first non-loopback)
+control_hz    = 10                  # arm control cycle; don't send commands faster than this
+gripper_open  = 65.0                # fully open (servo angle units, ~65)
+gripper_closed = 0.0                # fully closed (servo angle units, ~0)
+
+[usb]
+port          = ""                  # blank = auto-detect
+baud          = 115200
+log_file      = "logs/usb_monitor.log"
+
+[demo]
+j0_test_angle = 30.0                # degrees — J0 is base rotation (0-indexed)
+pause_seconds = 2.0
