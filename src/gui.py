@@ -36,8 +36,28 @@ except Exception as _e:
 from src.net_config import setup as net_setup
 from src.arm_control import D1Arm
 
-RECS_DIR = _ROOT / "recordings"
+RECS_DIR     = _ROOT / "recordings"
+SETTINGS_FILE = _ROOT / "config" / "gui_settings.json"
 RECS_DIR.mkdir(exist_ok=True)
+
+_DEFAULT_RESISTANCE = 5  # hold_every default (1=most compliant, 10=most resistant)
+
+
+def _load_gui_settings() -> dict:
+    try:
+        return json.loads(SETTINGS_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_gui_settings(data: dict) -> None:
+    try:
+        existing = _load_gui_settings()
+        existing.update(data)
+        SETTINGS_FILE.write_text(json.dumps(existing, indent=2))
+    except Exception as exc:
+        log.debug("gui settings save: %s", exc)
+
 
 JOINT_NAMES  = ["J0 Base", "J1 Shoulder", "J2 Elbow↑", "J3 Elbow↓",
                 "J4 Wrist Roll", "J5 Wrist Pitch", "J6 Gripper"]
@@ -65,6 +85,7 @@ class ArmController:
         self._play_idx = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._hold_every: int = _DEFAULT_RESISTANCE  # overridden by GUI setting
 
         # Callbacks set by GUI
         self.on_log: callable = lambda msg: None
@@ -139,12 +160,15 @@ class ArmController:
             elif mode == "RECORD" and self.arm:
                 joints = self.arm.get_joints_cached()
                 if joints:
-                    # Command the arm to hold its current position — enough
-                    # resistance to fight gravity but can be back-driven by hand.
-                    try:
-                        self.arm.move_joints(joints, mode=0)
-                    except Exception as exc:
-                        log.debug("record hold: %s", exc)
+                    # Send a hold command every _hold_every frames.
+                    # Fewer commands = arm holds old position longer = more drag
+                    # resistance. More commands = arm accepts new position
+                    # faster = arm moves more freely.
+                    if len(self._recording) % self._hold_every == 0:
+                        try:
+                            self.arm.move_joints(joints, mode=0)
+                        except Exception as exc:
+                            log.debug("record hold: %s", exc)
                     self._recording.append(list(joints))
                     self.on_feedback(joints)
                     if len(self._recording) % CTRL_HZ == 0:
@@ -252,6 +276,9 @@ class ArmController:
         with self._lock:
             self._target[idx] = value
 
+    def set_hold_every(self, n: int) -> None:
+        self._hold_every = max(1, n)
+
     def _set_mode(self, mode: str) -> None:
         self.mode = mode
         self.on_mode(mode)
@@ -272,6 +299,9 @@ class D1GUI:
         self.ctrl.on_mode     = self._on_mode
         self._log_buf: list[str] = []
         self._rec_files: list[str] = []
+        s = _load_gui_settings()
+        self._resistance: int = int(s.get("record_resistance", _DEFAULT_RESISTANCE))
+        self.ctrl.set_hold_every(self._resistance)
 
     # ── Callbacks from controller (called from background thread) ─────────────
 
@@ -358,6 +388,57 @@ class D1GUI:
     def _cb_slider(self, sender, value, user_data):
         self.ctrl.set_joint(user_data, float(value))
 
+    def _cb_resistance(self, sender, value):
+        n = max(1, int(round(value)))
+        self.ctrl.set_hold_every(n)
+        _save_gui_settings({"record_resistance": n})
+
+    def _cb_reset_resistance(self):
+        dpg.set_value("resistance_sl", _DEFAULT_RESISTANCE)
+        self.ctrl.set_hold_every(_DEFAULT_RESISTANCE)
+        _save_gui_settings({"record_resistance": _DEFAULT_RESISTANCE})
+
+    def _cb_delete_rec(self):
+        sel = dpg.get_value("rec_list")
+        if not sel or sel not in self._rec_files:
+            self._on_log("No recording selected.")
+            return
+        try:
+            (RECS_DIR / sel).unlink()
+            self._on_log(f"Deleted: {sel}")
+        except Exception as exc:
+            self._on_log(f"Delete failed: {exc}")
+        self._refresh_recordings()
+
+    def _cb_rename_rec(self):
+        sel = dpg.get_value("rec_list")
+        if not sel or sel not in self._rec_files:
+            self._on_log("No recording selected.")
+            return
+        dpg.set_value("rename_input", sel.removesuffix(".json"))
+        dpg.configure_item("rename_modal", show=True)
+        dpg.focus_item("rename_input")
+
+    def _do_rename(self):
+        sel = dpg.get_value("rec_list")
+        new_name = dpg.get_value("rename_input").strip()
+        dpg.configure_item("rename_modal", show=False)
+        if not new_name or not sel:
+            return
+        if not new_name.endswith(".json"):
+            new_name += ".json"
+        old_path = RECS_DIR / sel
+        new_path = RECS_DIR / new_name
+        if new_path.exists():
+            self._on_log(f"Name already exists: {new_name}")
+            return
+        try:
+            old_path.rename(new_path)
+            self._on_log(f"Renamed → {new_name}")
+        except Exception as exc:
+            self._on_log(f"Rename failed: {exc}")
+        self._refresh_recordings()
+
     def _refresh_recordings(self):
         files = sorted(
             [f.name for f in RECS_DIR.glob("*.json")],
@@ -425,6 +506,30 @@ class D1GUI:
                         )
                         dpg.add_spacer(height=2)
 
+                    dpg.add_spacer(height=8)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("DRAG RESISTANCE", color=(180, 180, 255))
+                    dpg.add_text(
+                        "Higher = arm pushes back more (less likely to collapse).\n"
+                        "Lower = arm yields more easily to your hand.",
+                        color=(140, 140, 140), wrap=self.SLIDER_W - 24)
+                    dpg.add_spacer(height=4)
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Free", color=(100, 200, 100))
+                        dpg.add_slider_int(
+                            tag="resistance_sl",
+                            min_value=1, max_value=10,
+                            default_value=self._resistance,
+                            width=self.SLIDER_W - 100,
+                            callback=self._cb_resistance,
+                        )
+                        dpg.add_text("Stiff", color=(220, 100, 100))
+                    dpg.add_spacer(height=4)
+                    dpg.add_button(label="Reset to default",
+                                   callback=self._cb_reset_resistance,
+                                   small=True)
+
                 dpg.add_spacer(width=8)
 
                 # Right panel ─────────────────────────────────────────────────
@@ -474,13 +579,21 @@ class D1GUI:
 
                     # Recordings ──────────────────────────────────────────────
                     with dpg.child_window(width=self.W - self.SLIDER_W - 28,
-                                          height=190, border=True):
+                                          height=220, border=True):
                         dpg.add_text("RECORDINGS", color=(180, 180, 255))
                         dpg.add_separator()
                         dpg.add_listbox(tag="rec_list", items=self._rec_files,
-                                        num_items=6,
+                                        num_items=5,
                                         width=self.W - self.SLIDER_W - 40)
-                        dpg.add_button(label="↻ Refresh", callback=self._refresh_recordings)
+                        with dpg.group(horizontal=True):
+                            dpg.add_button(label="↻ Refresh",
+                                           callback=self._refresh_recordings)
+                            dpg.add_spacer(width=6)
+                            dpg.add_button(label="Rename",
+                                           callback=self._cb_rename_rec)
+                            dpg.add_spacer(width=6)
+                            dpg.add_button(label="Delete",
+                                           callback=self._cb_delete_rec)
 
                     dpg.add_spacer(height=6)
 
@@ -497,11 +610,26 @@ class D1GUI:
 
                     # Log ─────────────────────────────────────────────────────
                     with dpg.child_window(width=self.W - self.SLIDER_W - 28,
-                                          height=self.H - 80 - 130 - 90 - 190 - 50 - 50,
+                                          height=self.H - 80 - 130 - 90 - 220 - 50 - 50,
                                           border=True):
                         dpg.add_text("LOG", color=(180, 180, 255))
                         dpg.add_separator()
                         dpg.add_text("", tag="log_box", wrap=self.W - self.SLIDER_W - 50)
+
+            # ── Rename modal ──────────────────────────────────────────────────
+            with dpg.window(label="Rename Recording", modal=True, show=False,
+                            tag="rename_modal", no_resize=True, width=420,
+                            pos=[340, 290]):
+                dpg.add_text("New filename (without .json):", color=(180, 180, 255))
+                dpg.add_input_text(tag="rename_input", width=400,
+                                   on_enter=True, callback=self._do_rename)
+                dpg.add_spacer(height=6)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Rename", width=90, callback=self._do_rename)
+                    dpg.add_spacer(width=8)
+                    dpg.add_button(label="Cancel", width=90,
+                                   callback=lambda: dpg.configure_item(
+                                       "rename_modal", show=False))
 
         self._refresh_recordings()
         self._on_log("Ready — click Connect to start.")
