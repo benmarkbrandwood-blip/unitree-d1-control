@@ -217,8 +217,13 @@ def setup(iface: Optional[str] = None) -> NetState:
         restore_state(state)
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    try:
+        signal.signal(signal.SIGINT, _signal_handler)
+        signal.signal(signal.SIGTERM, _signal_handler)
+    except ValueError:
+        # Called from a non-main thread (e.g. a GUI framework's render thread).
+        # atexit handler registered above handles cleanup in that case.
+        pass
 
     if not verify_arm_reachable():
         restore_state(state)
