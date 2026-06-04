@@ -53,14 +53,17 @@ Joints are 0-indexed. Angles are **degrees**. Control cycle: **10 Hz** (100 ms m
 ## Quick start
 
 ```bash
-# 1. Set up Python environment (one-time)
-./setup_env.sh
+# 1. Install (one-time) — sets up venv, sudoers, and firewall rules
+./install.sh
 
 # 2. Activate venv
 source venv/bin/activate
 
-# 3. Run demo
+# 3. Run the CLI demo
 python3 src/main.py
+
+# 4. Or launch the control GUI
+python3 src/gui.py
 ```
 
 `main.py` will:
@@ -71,6 +74,48 @@ python3 src/main.py
 5. Read joint angles from feedback
 6. Move J0 to 30° and return home
 7. Restore the original Ethernet config on exit
+
+## Control GUI
+
+`src/gui.py` is a [Dear PyGui](https://github.com/hoffstadt/DearPyGui) control panel for interactive arm use.
+
+**Features:**
+- Live joint feedback table (10 Hz, from `current_servo_angle` DDS topic)
+- 7 joint sliders (J0–J5 in degrees, J6 in servo units 0–65)
+- Manual mode: drag sliders to move the arm in real time (10 Hz streaming)
+- **Drag-teach recording**: release motors, move the arm by hand, record poses as JSON
+- **Playback**: replay any saved recording at 10 Hz
+- Homing, connect/disconnect, emergency power-off buttons
+- Log panel with timestamped status messages
+
+**Usage:**
+
+```bash
+python3 src/gui.py
+```
+
+1. Click **Connect** — configures Ethernet, starts DDS, enables motors
+2. Use **Manual** mode to jog joints via sliders
+3. Click **Record** — motors release; physically move the arm to teach poses
+4. Click **Stop Rec** — recording saved to `recordings/rec_YYYYMMDD_HHMMSS.json`
+5. Select a recording in the list and click **Play** to replay
+
+**Recordings format** (`recordings/*.json`):
+
+```json
+{
+  "name": "rec_20260604_154230.json",
+  "recorded_at": "2026-06-04T15:42:30",
+  "fps": 10,
+  "frame_count": 100,
+  "duration_s": 10.0,
+  "frames": [[j0, j1, j2, j3, j4, j5, j6], ...]
+}
+```
+
+### Windows
+
+`install.bat` / `install.ps1` set up the Python environment on Windows. However, **direct arm control requires Linux** — `net_config.py` uses Linux `ip` commands. For full control from Windows, use WSL2 with Ubuntu and run `install.sh` inside the WSL2 environment.
 
 ## Setup
 
@@ -128,10 +173,10 @@ sudo systemctl restart NetworkManager
 ```
 unitree-d1-control/
 ├── README.md
-├── plan.md              # implementation plan with review notes
-├── memory.md            # quick-reference protocol summary for Claude Code
-├── perplexity.md        # DDS debugging query (archived, issue resolved)
-├── setup_env.sh         # venv + pip install
+├── install.sh           # Linux installer (venv, sudoers, firewall)
+├── install.ps1          # Windows PowerShell installer (Python env only)
+├── install.bat          # Windows batch wrapper for install.ps1
+├── setup_env.sh         # forwards to install.sh
 ├── requirements.txt
 ├── config/
 │   └── settings.toml
@@ -139,6 +184,8 @@ unitree-d1-control/
 │   ├── net_config.py    # save/apply/restore Ethernet IP
 │   ├── usb_monitor.py   # USB-C serial debug reader
 │   ├── arm_control.py   # DDS arm wrapper (D1Arm class)
-│   └── main.py          # entry point / demo
+│   ├── main.py          # CLI demo entry point
+│   └── gui.py           # Dear PyGui control panel (drag-teach + playback)
+├── recordings/          # saved drag-teach recordings (JSON)
 └── logs/
 ```

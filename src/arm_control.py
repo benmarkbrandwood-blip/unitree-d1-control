@@ -249,6 +249,11 @@ class D1Arm:
         logging.info("D1Arm: move all joints → %s (mode=%d)", angles, mode)
         self._send(2, data)
 
+    def get_joints_cached(self) -> Optional[list[float]]:
+        """Return latest cached joint angles without blocking. None if not yet received."""
+        with self._cache_lock:
+            return list(self._joint_cache) if self._joint_cache is not None else None
+
     def get_joints(self, timeout: float = 3.0) -> list[float]:
         """Return the latest joint angles from arm feedback.
 

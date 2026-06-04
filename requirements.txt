@@ -2,3 +2,4 @@ pyserial>=3.5
 tomli>=2.0.0; python_version < "3.11"
 numpy>=1.24
 cyclonedds==0.10.5
+dearpygui>=1.9.0
