@@ -75,14 +75,22 @@ class ArmController:
     # ── Connection ─────────────────────────────────────────────────────────────
 
     def connect(self) -> None:
+        # net_setup() registers signal handlers; signal.signal() requires the
+        # main thread, so run it here (called from the DPG callback on the main
+        # thread) before handing off to the background thread for DDS work.
+        net_cfg = cfg["network"]
+        self.on_log("Configuring network…")
+        try:
+            net_setup(iface=net_cfg["iface"] or None)
+        except Exception as exc:
+            self.on_log(f"Network setup failed: {exc}")
+            return
+        self.on_log(f"Arm at {net_cfg['arm_ip']} reachable.")
         threading.Thread(target=self._connect, daemon=True).start()
 
     def _connect(self) -> None:
         try:
             net_cfg = cfg["network"]
-            self.on_log("Configuring network…")
-            net_setup(iface=net_cfg["iface"] or None)
-            self.on_log(f"Arm at {net_cfg['arm_ip']} reachable.")
             self.arm = D1Arm(iface=net_cfg["iface"] or None)
             self.arm.connect()
             self.arm.enable_all(True)
