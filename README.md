@@ -168,18 +168,31 @@ sudo ip addr flush dev enp63s0
 sudo systemctl restart NetworkManager
 ```
 
+## Planned: haptic teach mode
+
+See [`haptic_control.md`](haptic_control.md) for the full plan.
+
+The current drag-teach recording uses a position-hold loop to resist gravity, but the arm's PD servo remains stiff — it cannot be back-driven freely. The planned haptic mode will replace this with proper gravity compensation:
+
+- Lower per-joint `kp`/`kd` gains via a low-level DDS topic (`rt/arm_LowCmd` or similar) if exposed by the SDK, or via `tau_ff` feedforward torque in `ArmString`
+- `src/gravity_model.py` — static torque estimator from joint angles and link masses
+- `src/haptic_teach.py` — teach mode manager (gravity comp + record loop)
+- GUI integration: replaces the resistance slider with a proper backdrivable teach mode
+
 ## Project structure
 
 ```
 unitree-d1-control/
 ├── README.md
+├── haptic_control.md    # plan: gravity-compensated backdrivable teach mode
 ├── install.sh           # Linux installer (venv, sudoers, firewall)
 ├── install.ps1          # Windows PowerShell installer (Python env only)
 ├── install.bat          # Windows batch wrapper for install.ps1
 ├── setup_env.sh         # forwards to install.sh
 ├── requirements.txt
 ├── config/
-│   └── settings.toml
+│   ├── settings.toml
+│   └── gui_settings.json  # persisted GUI preferences (resistance slider etc.)
 ├── src/
 │   ├── net_config.py    # save/apply/restore Ethernet IP
 │   ├── usb_monitor.py   # USB-C serial debug reader
