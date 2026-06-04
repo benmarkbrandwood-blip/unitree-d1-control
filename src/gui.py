@@ -139,10 +139,17 @@ class ArmController:
             elif mode == "RECORD" and self.arm:
                 joints = self.arm.get_joints_cached()
                 if joints:
+                    # Command the arm to hold its current position — enough
+                    # resistance to fight gravity but can be back-driven by hand.
+                    try:
+                        self.arm.move_joints(joints, mode=0)
+                    except Exception as exc:
+                        log.debug("record hold: %s", exc)
                     self._recording.append(list(joints))
                     self.on_feedback(joints)
-                    secs = len(self._recording) * CTRL_DT
-                    self.on_log(f"● REC  {secs:.1f}s  ({len(self._recording)} frames)")
+                    if len(self._recording) % CTRL_HZ == 0:
+                        secs = len(self._recording) * CTRL_DT
+                        self.on_log(f"● REC  {secs:.0f}s")
 
             elif mode == "PLAYING" and self.arm:
                 if self._play_idx < len(self._playback):
@@ -192,10 +199,8 @@ class ArmController:
         if not self.arm or self.mode != "MANUAL":
             return
         self._recording = []
-        self.arm.enable_all(False)
-        time.sleep(0.2)
         self._set_mode("RECORD")
-        self.on_log("Recording — move arm freely. Click Stop when done.")
+        self.on_log("Recording — arm holds position, push gently to move. Stop Rec when done.")
 
     def stop_record(self) -> str | None:
         if self.mode != "RECORD":
@@ -203,8 +208,6 @@ class ArmController:
         self._set_mode("BUSY")
         frames = list(self._recording)
         self._recording = []
-        self.arm.enable_all(True)
-        time.sleep(0.3)
         joints = self.arm.get_joints_cached() or (frames[-1] if frames else [0.0]*7)
         with self._lock:
             self._target = list(joints)
